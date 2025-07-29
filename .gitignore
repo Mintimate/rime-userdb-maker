@@ -1,0 +1,8 @@
+# 交叉编译产物
+dist
+release
+*-windows-*.zip
+
+# 可能的 Python 缓存
+__pycache__
+src/__pycache__
