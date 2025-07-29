@@ -35,6 +35,14 @@ RUN jq '.linkProtectionTrustedDomains |= . + ["https://marketplace.visualstudio.
 # 安装 AI 插件
 RUN code-server --install-extension github.copilot
 
+# 安装字体
+RUN wget https://github.com/lxgw/LxgwWenKai/releases/download/v1.520/lxgw-wenkai-v1.520.zip && \
+    unzip lxgw-wenkai-v1.520.zip && \
+    mv lxgw-wenkai-v1.520 /usr/share/fonts/truetype && \
+    rm lxgw-wenkai-v1.520.zip && \
+    fc-cache -fv && \
+    echo "done"
+
 # 指定字符集支持命令行输入中文（根据需要选择字符集）
-ENV LANG=C.UTF-8
-ENV LANGUAGE=C.UTF-8
+ENV LANG zh_CN.UTF-8
+ENV LC_ALL zh_CN.UTF-8
