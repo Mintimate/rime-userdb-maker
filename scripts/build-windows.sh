@@ -40,6 +40,38 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# 检测是否需要sudo权限
+needs_sudo() {
+    # 如果当前用户是root，不需要sudo
+    if [ "$EUID" -eq 0 ]; then
+        return 1
+    fi
+    
+    # 在GitHub Actions或其他CI环境中，通常需要sudo
+    if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+        return 0
+    fi
+    
+    # 检查是否有sudo命令且当前用户在sudoers中
+    if command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    
+    # 默认尝试不使用sudo
+    return 1
+}
+
+# 智能执行命令（根据需要添加sudo）
+run_with_sudo() {
+    if needs_sudo; then
+        log_info "使用sudo执行: $*"
+        sudo "$@"
+    else
+        log_info "直接执行: $*"
+        "$@"
+    fi
+}
+
 # 检查命令是否存在
 check_command() {
     if ! command -v "$1" &> /dev/null; then
@@ -50,11 +82,44 @@ check_command() {
 
 # 安装系统依赖
 install_system_deps() {
+    # 如果在CI环境中，检查关键依赖是否已存在
+    if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+        log_info "检测到CI环境，检查预装依赖..."
+        
+        # 检查关键命令是否已存在
+        local missing_deps=()
+        
+        # 检查Wine
+        if ! command -v wine &> /dev/null; then
+            missing_deps+=("wine64")
+        fi
+        
+        # 检查基本工具
+        if ! command -v wget &> /dev/null; then
+            missing_deps+=("wget")
+        fi
+        
+        if ! command -v xvfb-run &> /dev/null; then
+            missing_deps+=("xvfb")
+        fi
+        
+        # 如果关键依赖都存在，跳过完整安装
+        if [ ${#missing_deps[@]} -eq 0 ]; then
+            log_success "CI环境依赖检查完成，跳过系统依赖安装"
+            # 仍需检查必要的命令
+            check_command "wine"
+            check_command "wget"
+            return
+        else
+            log_info "缺少依赖: ${missing_deps[*]}，继续安装..."
+        fi
+    fi
+    
     log_info "检查并安装系统依赖..."
     
-        # 更新包列表并安装基本依赖
-    apt-get update
-    apt-get install -y \
+    # 更新包列表并安装基本依赖
+    run_with_sudo apt-get update
+    run_with_sudo apt-get install -y \
         wine64 \
         cabextract \
         p7zip-full \
@@ -68,7 +133,7 @@ install_system_deps() {
         log_info "手动安装winetricks..."
         wget -O /tmp/winetricks https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
         chmod +x /tmp/winetricks
-        mv /tmp/winetricks /usr/local/bin/
+        run_with_sudo mv /tmp/winetricks /usr/local/bin/
         log_success "winetricks安装完成"
     fi
     

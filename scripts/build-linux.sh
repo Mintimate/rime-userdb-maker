@@ -78,8 +78,71 @@ detect_distro() {
     log_info "检测到系统: $DISTRO $VERSION ($TARGET_ARCH)"
 }
 
+# 检测是否需要sudo权限
+needs_sudo() {
+    # 如果当前用户是root，不需要sudo
+    if [ "$EUID" -eq 0 ]; then
+        return 1
+    fi
+    
+    # 在GitHub Actions或其他CI环境中，通常需要sudo
+    if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+        return 0
+    fi
+    
+    # 检查是否有sudo命令且当前用户在sudoers中
+    if command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+        return 0
+    fi
+    
+    # 默认尝试不使用sudo
+    return 1
+}
+
+# 智能执行命令（根据需要添加sudo）
+run_with_sudo() {
+    if needs_sudo; then
+        log_info "使用sudo执行: $*"
+        sudo "$@"
+    else
+        log_info "直接执行: $*"
+        "$@"
+    fi
+}
+
 # 安装系统依赖
 install_system_deps() {
+    # 如果在CI环境中，检查关键依赖是否已存在
+    if [ "$CI" = "true" ] || [ "$GITHUB_ACTIONS" = "true" ]; then
+        log_info "检测到CI环境，检查预装依赖..."
+        
+        # 检查关键命令是否已存在
+        local missing_deps=()
+        
+        # 检查Python
+        if ! command -v python3 &> /dev/null; then
+            missing_deps+=("python3")
+        fi
+        
+        # 检查pip
+        if ! command -v pip3 &> /dev/null && ! command -v pip &> /dev/null; then
+            missing_deps+=("python3-pip")
+        fi
+        
+        # 检查基本构建工具
+        if ! command -v gcc &> /dev/null; then
+            missing_deps+=("build-essential")
+        fi
+        
+        # 如果关键依赖都存在，跳过完整安装
+        if [ ${#missing_deps[@]} -eq 0 ]; then
+            log_success "CI环境依赖检查完成，跳过系统依赖安装"
+            return
+        else
+            log_info "缺少依赖: ${missing_deps[*]}，继续安装..."
+        fi
+    fi
+    
     log_info "检查并安装系统依赖..."
     
     detect_distro
@@ -87,10 +150,10 @@ install_system_deps() {
     case $DISTRO in
         ubuntu|debian)
             # 更新包列表
-            apt-get update
+            run_with_sudo apt-get update
             
             # 安装Python和构建工具
-            apt-get install -y \
+            run_with_sudo apt-get install -y \
                 python3 \
                 python3-pip \
                 python3-venv \
@@ -116,7 +179,7 @@ install_system_deps() {
                 
             # 尝试安装UPX（完全可选）
             log_info "尝试安装UPX压缩工具（可选，安装失败不影响构建）..."
-            apt-get install -y upx 2>/dev/null || {
+            run_with_sudo apt-get install -y upx 2>/dev/null || {
                 log_warning "UPX不可用，将跳过可执行文件压缩（这不影响功能）"
             }
             ;;
@@ -128,7 +191,7 @@ install_system_deps() {
                 PKG_MGR="yum"
             fi
             
-            $PKG_MGR install -y \
+            run_with_sudo $PKG_MGR install -y \
                 python3 \
                 python3-pip \
                 python3-devel \
@@ -152,13 +215,13 @@ install_system_deps() {
                 
             # 尝试安装UPX（可选）
             log_info "尝试安装UPX压缩工具..."
-            $PKG_MGR install -y upx 2>/dev/null || {
+            run_with_sudo $PKG_MGR install -y upx 2>/dev/null || {
                 log_warning "UPX安装失败，将跳过可执行文件压缩"
             }
             ;;
         arch|manjaro)
             # Arch系列
-            pacman -S --needed --noconfirm \
+            run_with_sudo pacman -S --needed --noconfirm \
                 python \
                 python-pip \
                 base-devel \
@@ -179,13 +242,13 @@ install_system_deps() {
                 
             # 尝试安装UPX（可选）
             log_info "尝试安装UPX压缩工具..."
-            pacman -S --needed --noconfirm upx 2>/dev/null || {
+            run_with_sudo pacman -S --needed --noconfirm upx 2>/dev/null || {
                 log_warning "UPX安装失败，将跳过可执行文件压缩"
             }
             ;;
         alpine)
             # Alpine Linux
-            apk add --no-cache \
+            run_with_sudo apk add --no-cache \
                 python3 \
                 python3-dev \
                 py3-pip \
@@ -207,7 +270,7 @@ install_system_deps() {
                 
             # 尝试安装UPX（可选）
             log_info "尝试安装UPX压缩工具..."
-            apk add --no-cache upx 2>/dev/null || {
+            run_with_sudo apk add --no-cache upx 2>/dev/null || {
                 log_warning "UPX安装失败，将跳过可执行文件压缩"
             }
             ;;
@@ -665,7 +728,7 @@ cross_compile_arm() {
         # 安装交叉编译工具链
         case $DISTRO in
             ubuntu|debian)
-                apt-get install -y gcc-aarch64-linux-gnu
+                run_with_sudo apt-get install -y gcc-aarch64-linux-gnu
                 ;;
             *)
                 log_warning "当前发行版可能不支持ARM64交叉编译"
