@@ -1,0 +1,185 @@
+name: Multi-Platform Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+    
+    - name: Build Linux (amd64 + arm64 cross-compile)
+      run: ./scripts/build.sh linux --cross-arm
+    
+    - name: Upload Linux artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-all
+        path: |
+          dist/rime-dict-processor-linux-*
+          *.tar.gz
+
+  build-windows:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Wine and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wine64 xvfb
+    
+    - name: Build Windows
+      run: ./scripts/build.sh windows
+    
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-x64
+        path: |
+          dist/rime-dict-processor.exe
+          *.zip
+
+  build-macos-arm64:
+    runs-on: macos-latest  # ARM64 (Apple Silicon)
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        brew install upx
+    
+    - name: Build macOS (native ARM64)
+      run: ./scripts/build.sh macos
+    
+    - name: Upload macOS ARM64 artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-arm64
+        path: |
+          dist/rime-dict-processor-macos-*
+          *.tar.gz
+
+  build-macos-intel:
+    runs-on: macos-13  # Intel x86_64
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        brew install upx
+    
+    - name: Build macOS (Intel x64 + ARM64 cross-compile)
+      run: ./scripts/build.sh macos --cross-arm
+    
+    - name: Upload macOS Intel artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-intel
+        path: |
+          dist/rime-dict-processor-macos-*
+          *.tar.gz
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        brew install upx
+    
+    - name: Build macOS (Intel x64 + ARM64 cross-compile)
+      run: ./scripts/build.sh macos --cross-arm
+    
+    - name: Upload macOS Intel artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-intel
+        path: |
+          dist/rime-dict-processor-macos-*
+          *.tar.gz
+
+  create-release:
+    needs: [build-linux, build-windows, build-macos-arm64, build-macos-intel]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Create release assets
+      run: |
+        mkdir -p release-assets
+        
+        # 移动所有构建产物到发布目录
+        find . -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          cp "$file" release-assets/
+        done
+        
+        # 创建校验和文件
+        cd release-assets
+        sha256sum * > checksums.txt
+    
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-executables:
+    needs: [build-linux, build-windows, build-macos-arm64, build-macos-intel]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download Linux artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: linux-all
+    
+    - name: Test Linux executable
+      run: |
+        chmod +x dist/rime-dict-processor-linux-amd64
+        ./dist/rime-dict-processor-linux-amd64 --version || echo "Version test completed"
+    
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: windows-x64
+    
+    - name: Test Windows executable (with Wine)
+      run: |
+        sudo apt-get update && sudo apt-get install -y wine64
+        wine dist/rime-dict-processor.exe --version || echo "Windows test completed"

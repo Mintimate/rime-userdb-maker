@@ -1,7 +1,7 @@
 #!/bin/bash
 # -*- coding: utf-8 -*-
 # 通用构建脚本 - 支持多平台构建
-# 支持平台: Linux (amd64, ARM64), Windows (交叉编译)
+# 支持平台: Linux (amd64, ARM64), Windows (交叉编译), macOS (原生)
 # 日期: 2025-07-30
 
 set -e
@@ -43,13 +43,16 @@ show_usage() {
     echo "  $0 linux              构建Linux版本 (当前架构)"
     echo "  $0 linux --cross-arm  构建Linux版本 + ARM64交叉编译"
     echo "  $0 windows            构建Windows版本 (Wine交叉编译)"
+    echo "  $0 macos              构建macOS版本 (仅macOS系统)"
+    echo "  $0 macos --cross-arm  构建macOS版本 + 交叉编译另一架构版本"
+    echo "                        (Intel Mac: x64 + ARM64, ARM Mac: ARM64 + x64)"
     echo "  $0 all                构建所有平台版本"
     echo "  $0 clean              清理所有构建文件"
     echo "  $0 --help             显示此帮助信息"
     echo ""
     echo "构建输出:"
     echo "  dist/                 可执行文件目录"
-    echo "  *.tar.gz             Linux发布包"
+    echo "  *.tar.gz             Linux/macOS发布包"
     echo "  *.zip                Windows发布包"
     echo ""
     echo "当前系统: $(uname -s) $(uname -m)"
@@ -86,6 +89,23 @@ build_linux() {
     log_success "Linux版本构建完成"
 }
 
+# 构建macOS版本
+build_macos() {
+    log_info "构建macOS版本..."
+    
+    local script="scripts/build-macos.sh"
+    check_script "$script"
+    
+    if [ "$1" = "--cross-arm" ]; then
+        log_info "启用ARM64交叉编译..."
+        ./"$script" --cross-arm
+    else
+        ./"$script"
+    fi
+    
+    log_success "macOS版本构建完成"
+}
+
 # 构建Windows版本
 build_windows() {
     log_info "构建Windows版本..."
@@ -114,6 +134,20 @@ build_all() {
     fi
     
     echo ""
+    
+    # 构建macOS版本（如果在macOS上）
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        log_info "=== 构建macOS版本 ==="
+        if [ "$(uname -m)" = "x86_64" ]; then
+            build_macos --cross-arm
+        else
+            build_macos
+        fi
+        echo ""
+    else
+        log_warning "跳过macOS构建（需要在macOS系统上运行）"
+        echo ""
+    fi
     
     # 构建Windows版本
     log_info "=== 构建Windows版本 ==="
@@ -195,6 +229,10 @@ main() {
             ;;
         "windows")
             build_windows
+            ;;
+        "macos")
+            shift
+            build_macos "$@"
             ;;
         "all")
             build_all
