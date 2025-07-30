@@ -1,7 +1,11 @@
 # 交叉编译产物
 dist
 release
+release-*
 *-windows-*.zip
+*-macOS-*.tar.gz
+*-linux-*.tar.gz
+venv-*
 
 # 可能的 Python 缓存
 __pycache__
