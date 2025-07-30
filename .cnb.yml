@@ -18,3 +18,30 @@ $:
         - name: 安装依赖
           script: 
             - echo "Done"
+  tag_push:
+    # 上传二进制包到 release 附件
+    - docker:
+        build: .ide/Dockerfile
+      stages:
+        - name: 更新日志
+          image: cnbcool/changelog
+          settings:
+            day: 30
+          exports:
+            latestChangeLog: LATEST_CHANGE_LOG
+        - name: 创建 release
+          type: git:release
+          options:
+            latest: true
+            description: ${LATEST_CHANGE_LOG}
+        - name: 依赖安装和部署
+          script: bash scripts/build.sh all
+        - name: release 上传附件
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - rime-dict-processor-*
+          exports:
+            FILES: FILES
+        - name: 输出附件
+          script: echo $FILES
